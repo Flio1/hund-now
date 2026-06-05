@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>THE MOST WANTED</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Most Wanted">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#0a0a0f">
+    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Share+Tech+Mono&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+
+    <style>
+        *, *::before, *::after { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        :root {
+            --red:#ff2222; --green:#00ff88; --orange:#ff8800;
+            --bg:#0a0a0f; --surface:#12121a; --surface2:#1a1a26; --border:#2a2a3a;
+            --text:#e0e0f0; --muted:#6a6a8a;
+            --sat: env(safe-area-inset-top,0px);
+            --sab: env(safe-area-inset-bottom,0px);
+        }
+        html,body { margin:0; padding:0; height:100%; width:100%; overflow:hidden; background:var(--bg); color:var(--text); font-family:'Rajdhani',sans-serif; }
+
+        /* ── SHELL ── */
+        #app { position:fixed; inset:0; display:flex; flex-direction:column; }
+
+        /* ── HEADER ── */
+        #header {
+            padding: calc(var(--sat) + 6px) 14px 6px;
+            background:var(--surface); border-bottom:1px solid var(--border);
+            display:flex; align-items:center; justify-content:space-between;
+            flex-shrink:0; z-index:10;
+        }
+        .logo { font-family:'Bebas Neue',sans-serif; font-size:22px; letter-spacing:3px; color:var(--red); text-shadow:0 0 16px rgba(255,34,34,0.5); line-height:1; }
+        .logo span { color:var(--text); }
+        #timerWrap { text-align:right; }
+        #timerLabel { font-family:'Share Tech Mono',monospace; font-size:8px; letter-spacing:2px; color:var(--muted); }
+        #timerDisplay { font-family:'Share Tech Mono',monospace; font-size:20px; color:var(--green); letter-spacing:2px; line-height:1.1; }
+        #timerDisplay.urgent { color:var(--red); animation:blink 1s infinite; }
+        @keyframes blink { 50%{opacity:0.3} }
+
+        /* ── MAP ── */
+        #mapCanvas { flex:1; width:100%; z-index:1; }
+
+        /* ── BOTTOM SHEET ── */
+        #sheet {
+            position:fixed; left:0; right:0; bottom:0;
+            background:var(--surface);
+            border-radius:16px 16px 0 0;
+            border-top:1px solid var(--border);
+            z-index:20;
+            /* height controlled by JS via --sh */
+            height: var(--sh, auto);
+            max-height: 85vh;
+            transition: height 0.3s cubic-bezier(0.4,0,0.2,1);
+            display:flex; flex-direction:column;
+            padding-bottom: calc(var(--sab) + 4px);
+        }
+
+        /* drag handle */
+        #sheetHandle {
+            width:36px; height:4px; border-radius:2px;
+            background:var(--border); margin:10px auto 6px;
+            flex-shrink:0; cursor:pointer;
+        }
+
+        /* status row */
+        #statusBar {
+            display:flex; align-items:center; gap:8px;
+            padding:4px 14px 6px; flex-shrink:0;
+            border-bottom:1px solid var(--border);
+        }
+        .sdot { width:6px; height:6px; border-radius:50%; background:var(--muted); flex-shrink:0; }
+        .sdot.on  { background:var(--green); box-shadow:0 0 6px var(--green); animation:pdot 2s infinite; }
+        .sdot.err { background:var(--red); }
+        @keyframes pdot { 50%{opacity:0.2} }
+        #statusText { font-family:'Share Tech Mono',monospace; font-size:10px; color:var(--muted); flex:1; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+
+        /* legend */
+        #legend { display:flex; gap:10px; padding:4px 14px; overflow-x:auto; scrollbar-width:none; flex-shrink:0; min-height:20px; }
+        #legend::-webkit-scrollbar{display:none}
+        .li { display:flex; align-items:center; gap:4px; flex-shrink:0; }
+        .ld { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+        .lt { font-family:'Share Tech Mono',monospace; font-size:10px; color:var(--text); }
+        .ltt { color:var(--muted); }
+
+        /* scrollable content area */
+        #sheetContent { flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; }
+
+        /* ── JOIN PANEL ── */
+        #joinPanel { padding:10px 14px 6px; display:flex; flex-direction:column; gap:8px; }
+        #joinPanel.hidden { display:none; }
+
+        .row2 { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+        .fg { display:flex; flex-direction:column; gap:3px; }
+        .fl { font-size:9px; letter-spacing:2px; text-transform:uppercase; color:var(--muted); font-family:'Share Tech Mono',monospace; }
+
+        .fi, .fs {
+            background:var(--bg); border:1px solid var(--border); border-radius:6px;
+            color:var(--text); font-family:'Rajdhani',sans-serif; font-size:15px;
+            font-weight:600; padding:9px 10px; width:100%; outline:none;
+            -webkit-appearance:none; appearance:none; transition:border-color 0.2s;
+        }
+        .fi:focus,.fs:focus { border-color:var(--red); }
+        .fs {
+            background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236a6a8a' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+            background-repeat:no-repeat; background-position:right 10px center; padding-right:28px;
+        }
+
+        .room-row { display:flex; gap:6px; align-items:flex-end; }
+        .room-row .fg { flex:1; }
+        .btn-gen {
+            background:var(--surface2); border:1px solid var(--border); color:var(--muted);
+            font-family:'Share Tech Mono',monospace; font-size:10px; letter-spacing:1px;
+            border-radius:6px; padding:10px 10px; cursor:pointer; white-space:nowrap;
+            touch-action:manipulation; flex-shrink:0;
+        }
+        .btn-gen:active { border-color:var(--red); color:var(--red); }
+
+        .btn-join {
+            background:var(--red); color:#fff; border:none; border-radius:8px;
+            font-family:'Bebas Neue',sans-serif; font-size:18px; letter-spacing:3px;
+            padding:13px; cursor:pointer; touch-action:manipulation;
+            box-shadow:0 4px 20px rgba(255,34,34,0.35); width:100%;
+            transition:transform 0.1s;
+        }
+        .btn-join:active { transform:scale(0.98); }
+        .btn-join:disabled { background:var(--surface2); color:var(--muted); box-shadow:none; }
+
+        /* ── ACTIVE PANEL ── */
+        #activePanel { padding:10px 14px 6px; display:none; flex-direction:column; gap:10px; }
+        #activePanel.vis { display:flex; }
+
+        .prow { display:flex; align-items:center; justify-content:space-between; }
+        .pbadge { display:flex; align-items:center; gap:10px; }
+        .ri { width:11px; height:11px; border-radius:50%; flex-shrink:0; }
+        .ri.f { background:var(--red); box-shadow:0 0 8px var(--red); }
+        .ri.j { background:var(--green); box-shadow:0 0 8px var(--green); }
+        .pname { font-family:'Bebas Neue',sans-serif; font-size:20px; letter-spacing:2px; }
+        .prole { font-family:'Share Tech Mono',monospace; font-size:10px; color:var(--muted); }
+
+        .btn-leave {
+            background:transparent; border:1px solid var(--border); color:var(--muted);
+            font-family:'Bebas Neue',sans-serif; font-size:13px; letter-spacing:1px;
+            padding:7px 13px; border-radius:6px; cursor:pointer; touch-action:manipulation;
+        }
+        .btn-leave:active { border-color:var(--red); color:var(--red); }
+
+        #roomBadge { font-family:'Share Tech Mono',monospace; font-size:10px; color:var(--muted); letter-spacing:1px; }
+        #roomBadge b { color:var(--orange); }
+
+        .uprow { display:flex; align-items:center; gap:8px; }
+        .ulab { font-family:'Share Tech Mono',monospace; font-size:10px; color:var(--muted); white-space:nowrap; }
+        .ptrack { flex:1; height:3px; background:var(--border); border-radius:2px; overflow:hidden; }
+        .pfill { height:100%; background:linear-gradient(90deg,var(--red),var(--orange)); width:0%; transition:width 1s linear; }
+
+        /* ── MAP OVERRIDES ── */
+        .leaflet-control-zoom { border:1px solid var(--border) !important; border-radius:6px !important; overflow:hidden; }
+        .leaflet-control-zoom a { background:var(--surface) !important; color:var(--text) !important; border-bottom:1px solid var(--border) !important; }
+        .leaflet-control-zoom a:last-child { border-bottom:none !important; }
+        .leaflet-control-attribution { display:none !important; }
+        .tmw-popup .leaflet-popup-content-wrapper { background:transparent; border:none; box-shadow:none; padding:0; }
+        .tmw-popup .leaflet-popup-tip { display:none; }
+        .tmw-popup .leaflet-popup-content { margin:0; }
+    </style>
+</head>
+<body>
+<div id="app">
+    <header id="header">
+        <div class="logo">THE<span> MOST </span>WANTED</div>
+        <div id="timerWrap">
+            <div id="timerLabel">RESTZEIT</div>
+            <div id="timerDisplay">02:00:00</div>
+        </div>
+    </header>
+    <div id="mapCanvas"></div>
+</div>
+
+<!-- BOTTOM SHEET -->
+<div id="sheet">
+    <div id="sheetHandle"></div>
+
+    <div id="statusBar">
+        <div class="sdot" id="sdot"></div>
+        <div id="statusText">Initialisiere …</div>
+    </div>
+
+    <div id="legend"></div>
+
+    <div id="sheetContent">
+        <!-- JOIN -->
+        <div id="joinPanel">
+            <div class="row2">
+                <div class="fg">
+                    <div class="fl">Dein Name</div>
+                    <input class="fi" type="text" id="playerName" placeholder="z.B. FLIO" autocomplete="off" autocorrect="off" spellcheck="false" maxlength="12">
+                </div>
+                <div class="fg">
+                    <div class="fl">Rolle</div>
+                    <select class="fs" id="roleSelect">
+                        <option value="F1">⚡ Fänger 1</option>
+                        <option value="F2">⚡ Fänger 2</option>
+                        <option value="J1">🎯 Gejagter 1</option>
+                        <option value="J2">🎯 Gejagter 2</option>
+                    </select>
+                </div>
+            </div>
+            <div class="room-row">
+                <div class="fg">
+                    <div class="fl">Raum-Code (alle gleich!)</div>
+                    <input class="fi" type="text" id="roomCode" placeholder="z.B. WOLF-482" autocomplete="off" spellcheck="false" maxlength="16" style="text-transform:uppercase;letter-spacing:2px">
+                </div>
+                <button class="btn-gen" id="btnGen">ZUFALL</button>
+            </div>
+            <button class="btn-join" id="btnJoin">SPIEL BEITRETEN</button>
+        </div>
+
+        <!-- ACTIVE -->
+        <div id="activePanel">
+            <div class="prow">
+                <div class="pbadge">
+                    <div class="ri" id="ri"></div>
+                    <div>
+                        <div class="pname" id="pname">–</div>
+                        <div class="prole" id="prole">–</div>
+                    </div>
+                </div>
+                <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+                    <div id="roomBadge">RAUM: <b id="rcode">–</b></div>
+                    <button class="btn-leave" id="btnLeave">VERLASSEN</button>
+                </div>
+            </div>
+            <div class="uprow">
+                <div class="ulab" id="ulab">UPDATE IN –</div>
+                <div class="ptrack"><div class="pfill" id="pfill"></div></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gun/gun.js"></script>
+<script>
+// ═══ CONFIG ═══
+const GAME_MS  = 2 * 60 * 60 * 1000;
+const TRACK_MS = 15 * 60 * 1000;
+const ROLES = {
+    F1:{label:"Fänger 1",  color:"#ff2222",cls:"f"},
+    F2:{label:"Fänger 2",  color:"#ff7733",cls:"f"},
+    J1:{label:"Gejagter 1",color:"#00ff88",cls:"j"},
+    J2:{label:"Gejagter 2",color:"#00ddff",cls:"j"},
+};
+const WORDS = ["WOLF","HAWK","BEAR","LYNX","VIPER","GHOST","STORM","ECHO","NOVA","RAGE","CLAW","BLAZE"];
+
+// ═══ STATE ═══
+let leafMap, markers={}, players={};
+let myId=null, myRole=null, myName=null;
+let trackTid=null, timerTid=null, progTid=null;
+let gameEnd=null, nextUp=null;
+let gun=null, room=null;
+
+// ═══ DOM ═══
+const sdot   = document.getElementById("sdot");
+const stxt   = document.getElementById("statusText");
+const btnJoin= document.getElementById("btnJoin");
+const btnLeave=document.getElementById("btnLeave");
+const btnGen = document.getElementById("btnGen");
+const inName = document.getElementById("playerName");
+const selRole= document.getElementById("roleSelect");
+const inRoom = document.getElementById("roomCode");
+const timer  = document.getElementById("timerDisplay");
+const jpanel = document.getElementById("joinPanel");
+const apanel = document.getElementById("activePanel");
+const sheet  = document.getElementById("sheet");
+const legend = document.getElementById("legend");
+const pfill  = document.getElementById("pfill");
+const ulab   = document.getElementById("ulab");
+const riEl   = document.getElementById("ri");
+const pname  = document.getElementById("pname");
+const prole  = document.getElementById("prole");
+const rcode  = document.getElementById("rcode");
+
+// ═══ SHEET DRAG ═══
+// Sheet starts collapsed (just status+handle visible), opens on touch
+const SHEET_PEEK = 100;  // px visible when collapsed
+let sheetOpen = true;
+
+function setSheetHeight(open) {
+    sheetOpen = open;
+    sheet.style.height = open ? "" : SHEET_PEEK + "px";
+    sheet.style.overflow = open ? "" : "hidden";
+}
+
+document.getElementById("sheetHandle").addEventListener("click", () => setSheetHeight(!sheetOpen));
+
+// Close sheet when map is tapped
+document.getElementById("mapCanvas").addEventListener("click", () => setSheetHeight(false));
+
+// ═══ INIT ═══
+window.addEventListener("load", () => {
+    initMap();
+    gun = Gun(["https://gun-manhattan.herokuapp.com/gun","https://gundb-relay-mlccl.ondigitalocean.app/gun"]);
+    genCode();
+    setStatus("Bereit – Raum-Code eingeben", "");
+    setSheetHeight(true);
+});
+
+// ═══ MAP ═══
+function initMap() {
+    leafMap = L.map("mapCanvas", {
+        center:[52.52,13.405], zoom:13,
+        zoomControl:true, attributionControl:false,
+        tap:true, tapTolerance:15
+    });
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",{maxZoom:19,subdomains:"abcd"}).addTo(leafMap);
+
+    // fix map size after sheet settles
+    setTimeout(()=>leafMap.invalidateSize(),400);
+}
+
+// ═══ ROOM CODE ═══
+function genCode() {
+    inRoom.value = WORDS[Math.floor(Math.random()*WORDS.length)] + "-" + (100+Math.floor(Math.random()*900));
+}
+btnGen.addEventListener("click", genCode);
+inRoom.addEventListener("input", () => inRoom.value = inRoom.value.toUpperCase());
+
+// ═══ JOIN ═══
+btnJoin.addEventListener("click", async () => {
+    const name = inName.value.trim();
+    const role = selRole.value;
+    const rc   = inRoom.value.trim().toUpperCase();
+    if (!name) { shake(inName); return; }
+    if (!rc)   { shake(inRoom); return; }
+
+    btnJoin.disabled = true;
+    btnJoin.textContent = "VERBINDE …";
+
+    myId=role; myRole=role; myName=name;
+    const roomKey = "tmw_" + rc.replace(/[^A-Z0-9]/g,"");
+    room = gun.get(roomKey);
+
+    // start time
+    room.get("meta").get("startTime").once(v => {
+        if (!v) { const n=Date.now(); room.get("meta").get("startTime").put(n); gameEnd=n+GAME_MS; }
+        else gameEnd = v + GAME_MS;
+        startTimer();
+    });
+
+    // subscribe players
+    room.get("players").map().on((d,id) => {
+        if (!d) { delete players[id]; if(markers[id]){markers[id].remove();delete markers[id];} updateLegend(); return; }
+        players[id]=d;
+        if (d.lat && d.lng && !(d.lat===0&&d.lng===0)) updateMarker(id,d);
+        updateLegend();
+    });
+
+    // write self
+    room.get("players").get(myId).put({name:myName,role:myRole,lat:0,lng:0,lastUpdate:0});
+
+    // UI
+    jpanel.classList.add("hidden");
+    apanel.classList.add("vis");
+    const m = ROLES[role];
+    riEl.className = "ri " + m.cls;
+    pname.textContent = name;
+    prole.textContent = m.label;
+    rcode.textContent = rc;
+
+    startTracking();
+    setStatus("Verbunden · " + m.label, "on");
+    setSheetHeight(false); // collapse after joining so map is visible
+});
+
+// ═══ LEAVE ═══
+btnLeave.addEventListener("click", () => {
+    if (room&&myId) room.get("players").get(myId).put(null);
+    stopTracking();
+    if (markers[myId]) { markers[myId].remove(); delete markers[myId]; }
+    players={}; myId=myRole=myName=null; room=null;
+    apanel.classList.remove("vis");
+    jpanel.classList.remove("hidden");
+    btnJoin.disabled=false; btnJoin.textContent="SPIEL BEITRETEN";
+    legend.innerHTML="";
+    setStatus("Verlassen – Raum eingeben","");
+    setSheetHeight(true);
+});
+
+// ═══ TRACKING ═══
+function startTracking() {
+    if (!navigator.geolocation) { setStatus("GPS nicht verfügbar!","err"); return; }
+    sendPos();
+    nextUp = Date.now()+TRACK_MS;
+    trackTid = setInterval(()=>{ sendPos(); nextUp=Date.now()+TRACK_MS; }, TRACK_MS);
+    startProg();
+}
+function stopTracking() {
+    clearInterval(trackTid); clearInterval(progTid);
+    trackTid=progTid=null; pfill.style.width="0%"; ulab.textContent="GESTOPPT";
+}
+function sendPos() {
+    navigator.geolocation.getCurrentPosition(p=>{
+        const {latitude:lat,longitude:lng}=p.coords, now=Date.now();
+        if(room&&myId) room.get("players").get(myId).put({name:myName,role:myRole,lat,lng,lastUpdate:now});
+        setStatus("📍 "+lat.toFixed(4)+", "+lng.toFixed(4)+" · "+fmt(now),"on");
+        leafMap.panTo([lat,lng]);
+    }, e=>setStatus("GPS: "+e.message,"err"),{enableHighAccuracy:true,timeout:12000,maximumAge:0});
+}
+function startProg() {
+    clearInterval(progTid);
+    progTid = setInterval(()=>{
+        if(!nextUp) return;
+        const rem = Math.max(0,Math.ceil((nextUp-Date.now())/1000));
+        pfill.style.width = Math.min(100,(1-rem/(TRACK_MS/1000))*100)+"%";
+        ulab.textContent = "UPDATE IN "+pad(Math.floor(rem/60))+":"+pad(rem%60);
+    },1000);
+}
+
+// ═══ MARKERS ═══
+function makeIcon(color) {
+    const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36"><circle cx="18" cy="18" r="15" fill="${color}" fill-opacity=".15"/><circle cx="18" cy="18" r="9" fill="${color}" fill-opacity=".9"/><circle cx="18" cy="18" r="5" fill="#fff" fill-opacity=".95"/></svg>`;
+    return L.icon({iconUrl:"data:image/svg+xml;charset=UTF-8,"+encodeURIComponent(svg),iconSize:[36,36],iconAnchor:[18,18],popupAnchor:[0,-20]});
+}
+function updateMarker(id,d) {
+    const m=ROLES[d.role]||{color:"#fff",label:d.role};
+    const ll=[d.lat,d.lng];
+    const pop=`<div style="background:#12121a;border:1px solid #2a2a3a;padding:7px 12px;border-radius:8px;color:#e0e0f0;font-family:'Rajdhani',sans-serif"><div style="font-family:'Bebas Neue',sans-serif;font-size:17px;letter-spacing:2px;color:${m.color}">${d.name||id}</div><div style="font-size:11px;color:#6a6a8a">${m.label}${d.lastUpdate?" · "+fmt(d.lastUpdate):""}</div></div>`;
+    if (!markers[id]) {
+        markers[id]=L.marker(ll,{icon:makeIcon(m.color)}).addTo(leafMap).bindPopup(pop,{className:"tmw-popup",closeButton:false});
+    } else { markers[id].setLatLng(ll); markers[id].setPopupContent(pop); }
+}
+
+// ═══ LEGEND ═══
+function updateLegend() {
+    legend.innerHTML="";
+    for (const id in players) {
+        const p=players[id]; if(!p||!p.lat||(p.lat===0&&p.lng===0)) continue;
+        const m=ROLES[p.role]||{color:"#fff",label:p.role};
+        const ago=p.lastUpdate?Math.floor((Date.now()-p.lastUpdate)/60000)+"m":"–";
+        const el=document.createElement("div"); el.className="li";
+        el.innerHTML=`<div class="ld" style="background:${m.color};box-shadow:0 0 5px ${m.color}"></div><div class="lt">${p.name||id} <span class="ltt">${ago}</span></div>`;
+        legend.appendChild(el);
+    }
+}
+
+// ═══ TIMER ═══
+function startTimer() {
+    clearInterval(timerTid);
+    const tick=()=>{
+        if(!gameEnd) return;
+        const d=Math.max(0,gameEnd-Date.now());
+        timer.textContent=pad(Math.floor(d/3600000))+":"+pad(Math.floor(d%3600000/60000))+":"+pad(Math.floor(d%60000/1000));
+        timer.classList.toggle("urgent",d<600000&&d>0);
+        if(d===0){clearInterval(timerTid);timer.textContent="GAME OVER";setStatus("Zeit abgelaufen!","err");stopTracking();}
+    };
+    tick(); timerTid=setInterval(tick,1000);
+}
+
+// ═══ HELPERS ═══
+function pad(n){return String(Math.floor(n)).padStart(2,"0");}
+function fmt(ts){return new Date(ts).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});}
+function setStatus(msg,state){
+    stxt.textContent=msg; sdot.className="sdot";
+    if(state==="on") sdot.classList.add("on");
+    else if(state==="err") sdot.classList.add("err");
+}
+function shake(el){
+    el.style.borderColor="#ff2222";
+    el.animate([{transform:"translateX(0)"},{transform:"translateX(-5px)"},{transform:"translateX(5px)"},{transform:"translateX(0)"}],{duration:300,iterations:2});
+    setTimeout(()=>el.style.borderColor="",600); el.focus();
+}
+const pstyle=document.createElement("style");
+pstyle.textContent=".tmw-popup .leaflet-popup-content-wrapper{background:transparent;border:none;box-shadow:none;padding:0}.tmw-popup .leaflet-popup-tip{display:none}.tmw-popup .leaflet-popup-content{margin:0}";
+document.head.appendChild(pstyle);
+</script>
+</body>
+</html>
