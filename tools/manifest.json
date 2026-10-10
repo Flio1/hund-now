@@ -1,0 +1,12 @@
+{
+  "tools": [
+    {"module": "tools/alexa_control.py", "desc": "Alexa über Home Assistant oder alexa_remote_control.sh steuern (CLI + API)",
+     "cli": "python -m tools.alexa_control {speak|play|volume|stop|routine|devices} [wert] [-d gerät]",
+     "input": {"action": "str", "value": "str", "device": "str|None"}, "output": "Exitcode 0/1; devices -> Liste auf stdout",
+     "config": "tools/alexa_config.json oder HA_URL/HA_TOKEN/ALEXA_BACKEND"},
+    {"module": "tools/alexa_skill.py", "desc": "Alexa Custom Skill Lambda-Handler (lambda_handler), Befehle an set_command_handler",
+     "input": {"event": "dict (Alexa Request JSON)"}, "output": "dict (Alexa Response JSON)"},
+    {"module": "tools/jarvis_alexa_intent.py", "desc": "JARVIS-Intent 'alexa ...' -> alexa_control",
+     "input": {"text": "str"}, "output": "str|None (None = nicht zuständig)"}
+  ]
+}
