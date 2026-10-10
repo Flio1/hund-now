@@ -1,0 +1,7 @@
+{
+  "backend": "homeassistant",
+  "ha_url": "http://homeassistant.local:8123",
+  "ha_token": "LONG_LIVED_ACCESS_TOKEN",
+  "default_device": "echo_wohnzimmer",
+  "script": "/pfad/zu/alexa_remote_control.sh"
+}
